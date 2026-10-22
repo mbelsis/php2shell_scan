@@ -1,0 +1,6 @@
+subnet
+# One entry per row. CIDR, single IP, or hostname. '#' lines are ignored.
+10.0.1.0/24
+10.0.2.0/24
+192.168.50.10
+web01.internal.example.com

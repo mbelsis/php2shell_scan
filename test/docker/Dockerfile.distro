@@ -1,0 +1,29 @@
+ARG BASE
+FROM ${BASE}
+ENV DEBIAN_FRONTEND=noninteractive
+# Installs the distro PHP from the (moving) base repositories. The exact patch
+# level is not assumed: the build-time check below fails the build unless the
+# installed PHP is at an UPSTREAM version below the php2shell fix threshold, i.e.
+# a version the scanner must flag as POTENTIALLY_VULNERABLE. That is an upstream-
+# version check for a valid integration test, NOT proof of exploitability, and it
+# does not resolve distro backport status. Pin to a distro snapshot mirror for
+# full reproducibility.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      apache2 libapache2-mod-php php-cli openssh-server ca-certificates \
+ && php -r '$v=PHP_VERSION; $b=PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION; \
+      $fix=["8.2"=>"8.2.35","8.3"=>"8.3.36","8.4"=>"8.4.27","8.5"=>"8.5.12"]; \
+      $aff = version_compare($b,"8.2","<") ? true : (isset($fix[$b]) ? version_compare($v,$fix[$b],"<") : false); \
+      if(!$aff){ fwrite(STDERR,"BUILD CHECK FAILED: PHP $v is at or above the upstream fix threshold; scanner would not flag it\n"); exit(1);} \
+      fwrite(STDERR,"fixture PHP $v is below the upstream fix threshold; scanner must flag it (OK)\n");' \
+ && mkdir -p /run/sshd \
+ && echo 'root:testpass123' | chpasswd \
+ && ssh-keygen -A \
+ && printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/zz-test.conf \
+ && echo '<?php phpinfo();' > /var/www/html/index.php \
+ && printf '#!/bin/sh\nmkdir -p /run/sshd\n/usr/sbin/sshd\n. /etc/apache2/envvars\nexec apache2 -D FOREGROUND\n' > /start.sh \
+ && chmod +x /start.sh \
+ && rm -rf /var/lib/apt/lists/*
+EXPOSE 22 80
+ENTRYPOINT ["/start.sh"]
+CMD []

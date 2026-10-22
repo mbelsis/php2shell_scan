@@ -1,0 +1,34 @@
+FROM segmentra-demo-srv-debian
+ENV DEBIAN_FRONTEND=noninteractive
+# Install PHP from the base bookworm suite (older than bookworm-security). The
+# exact patch level the suite serves can move over time, so DO NOT assume a
+# specific version: the build-time check below fails the build unless the
+# installed PHP is at an UPSTREAM version below the php2shell fix threshold.
+#
+# Scope of that check: it only confirms the fixture carries a version the scanner
+# must classify as POTENTIALLY_VULNERABLE, so this stays a valid integration test
+# of the scanner. It is NOT proof the binary is exploitable and does NOT resolve
+# distro backport status (a vendor can patch while keeping an older version
+# string). For a byte-for-byte reproducible version, point URIs at a
+# snapshot.debian.org timestamp, e.g.
+#   URIs: http://snapshot.debian.org/archive/debian/20250101T000000Z
+RUN printf 'Types: deb\nURIs: http://deb.debian.org/debian\nSuites: bookworm\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' > /etc/apt/sources.list.d/debian.sources \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      apache2 libapache2-mod-php php-cli openssh-server ca-certificates \
+ && php -r '$v=PHP_VERSION; $b=PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION; \
+      $fix=["8.2"=>"8.2.35","8.3"=>"8.3.36","8.4"=>"8.4.27","8.5"=>"8.5.12"]; \
+      $aff = version_compare($b,"8.2","<") ? true : (isset($fix[$b]) ? version_compare($v,$fix[$b],"<") : false); \
+      if(!$aff){ fwrite(STDERR,"BUILD CHECK FAILED: PHP $v is at or above the upstream fix threshold; scanner would not flag it\n"); exit(1);} \
+      fwrite(STDERR,"fixture PHP $v is below the upstream fix threshold; scanner must flag it (OK)\n");' \
+ && mkdir -p /run/sshd \
+ && echo 'root:testpass123' | chpasswd \
+ && ssh-keygen -A \
+ && printf 'PermitRootLogin yes\nPasswordAuthentication yes\n' > /etc/ssh/sshd_config.d/zz-test.conf \
+ && echo '<?php phpinfo();' > /var/www/html/index.php \
+ && printf '#!/bin/sh\nmkdir -p /run/sshd\n/usr/sbin/sshd\n. /etc/apache2/envvars\nexec apache2 -D FOREGROUND\n' > /start.sh \
+ && chmod +x /start.sh \
+ && rm -rf /var/lib/apt/lists/*
+EXPOSE 22 80
+ENTRYPOINT ["/start.sh"]
+CMD []
